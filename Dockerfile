@@ -16,9 +16,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY app ./app
 
-# Expose port 10000  
-EXPOSE 10000
+# Copy data folder (optional, if needed for HuggingFace)
+COPY data ./data
 
-# Start command -
-# Using --timeout-keep-alive to prevent timeouts on heavy operations
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "10000", "--timeout-keep-alive", "120"]
+# Hugging Face Spaces uses port 7860 by default
+EXPOSE 7860
+
+# Start command for Hugging Face Spaces
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "7860", "--timeout-keep-alive", "120"]
