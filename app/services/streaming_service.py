@@ -5,7 +5,7 @@ from app.core.config import settings
 from app.db.vector_store import vector_store
 from app.prompts import get_rag_system_prompt, get_context_template
 from app.core.logging_config import get_logger
-from sentence_transformers import SentenceTransformer
+from app.services.embedding_service import embedding_service
 
 logger = get_logger(__name__)
 
@@ -29,7 +29,7 @@ class StreamingRAGService:
         self.llm_model = llm_model or settings.LLM_MODEL
         self.llm_endpoint = llm_endpoint
         self.api_key = api_key or settings.OPENROUTER_API_KEY
-        self.embedding_model = SentenceTransformer(settings.EMBEDDING_MODEL)
+        self.embedding_service = embedding_service  # Lazy-loaded
     
     def _build_context(self, results: List[Dict]) -> str:
         """Format retrieval results into context string."""
@@ -70,7 +70,7 @@ class StreamingRAGService:
         """
         try:
             # Step 0: Check Semantic Cache
-            query_embedding = self.embedding_model.encode(query).tolist()
+            query_embedding = self.embedding_service.encode(query)
             
             if self.semantic_cache:
                 cached_result = self.semantic_cache.check_cache(query_embedding, query)
