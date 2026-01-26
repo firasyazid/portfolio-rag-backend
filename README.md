@@ -1,3 +1,13 @@
+---
+title: Portfolio RAG Backend
+emoji: 🤖
+colorFrom: blue
+colorTo: purple
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # RAG-Powered Portfolio AI Backend
 
 A production-ready Retrieval-Augmented Generation (RAG) system that transforms portfolio data into an intelligent, conversational API. Built with FastAPI, Pinecone, and advanced semantic caching.
@@ -285,7 +295,6 @@ curl http://localhost:8000/api/v1/cache/stats
 ## Future Enhancements
 
 - Conversation memory with session tracking
-- Streaming responses (SSE)
 - Multi-language support
 - Conversation analytics dashboard
 - A/B testing for different prompts
