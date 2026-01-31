@@ -20,7 +20,7 @@ class StreamingRAGService:
         vector_store,
         semantic_cache=None,
         llm_model: str = None,
-        llm_endpoint: str = "https://openrouter.ai/api/v1/chat/completions",
+        llm_endpoint: str = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent",
         api_key: Optional[str] = None
     ):
         """Initialize streaming service with dependencies."""
@@ -28,7 +28,7 @@ class StreamingRAGService:
         self.semantic_cache = semantic_cache
         self.llm_model = llm_model or settings.LLM_MODEL
         self.llm_endpoint = llm_endpoint
-        self.api_key = api_key or settings.OPENROUTER_API_KEY
+        self.api_key = api_key or settings.GEMINI_API_KEY
         self.embedding_service = embedding_service  # Lazy-loaded
     
     def _build_context(self, results: List[Dict]) -> str:
@@ -117,26 +117,25 @@ class StreamingRAGService:
             logger.info(f"Streaming from LLM: {self.llm_model}")
             
             headers = {
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-                "HTTP-Referer": "https://firas-portfolio.com",
-                "X-Title": "Firas Portfolio RAG Stream"
+                "Content-Type": "application/json"
             }
             
             payload = {
-                "model": self.llm_model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": query}
-                ],
-                "temperature": temperature,
-                "stream": True  # Enable streaming
+                "contents": [{
+                    "parts": [{
+                        "text": f"{system_prompt}\n\nUser: {query}"
+                    }]
+                }],
+                "generationConfig": {
+                    "temperature": temperature,
+                    "maxOutputTokens": 2048
+                }
             }
             
             async with httpx.AsyncClient() as client:
                 async with client.stream(
                     "POST",
-                    self.llm_endpoint,
+                    f"{self.llm_endpoint}?key={self.api_key}",
                     headers=headers,
                     json=payload,
                     timeout=120.0
@@ -159,7 +158,7 @@ class StreamingRAGService:
                         if not line:
                             continue
                         
-                        # Parse OpenRouter SSE format
+                        # Parse Gemini streaming format
                         if line.startswith("data: "):
                             data_str = line[6:]   
                             
@@ -171,19 +170,22 @@ class StreamingRAGService:
                             try:
                                 chunk_data = json.loads(data_str)
                                 
-                                # Extract content from choice
-                                if "choices" in chunk_data and len(chunk_data["choices"]) > 0:
-                                    delta = chunk_data["choices"][0].get("delta", {})
-                                    content = delta.get("content", "")
-                                    
-                                    if content:
-                                        yield json.dumps({
-                                            "type": "chunk",
-                                            "content": content
-                                        }) + "\n"
+                                # Extract content from Gemini response
+                                if "candidates" in chunk_data and len(chunk_data["candidates"]) > 0:
+                                    candidate = chunk_data["candidates"][0]
+                                    if "content" in candidate and "parts" in candidate["content"]:
+                                        parts = candidate["content"]["parts"]
+                                        if len(parts) > 0 and "text" in parts[0]:
+                                            content = parts[0]["text"]
+                                            
+                                            if content:
+                                                yield json.dumps({
+                                                    "type": "chunk",
+                                                    "content": content
+                                                }) + "\n"
                                         
                             except json.JSONDecodeError:
-                                logger.warning(f"Failed to parse SSE data: {data_str[:50]}")
+                                logger.warning(f"Failed to parse streaming data: {data_str[:50]}")
                                 continue
         
         except Exception as e:

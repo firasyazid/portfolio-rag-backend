@@ -13,8 +13,9 @@ class Settings(BaseSettings):
     
     # LLM & Embedding Config
     EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
-    LLM_MODEL: str = "meta-llama/llama-3.3-70b-instruct:free"
-    OPENROUTER_API_KEY: str
+    LLM_MODEL: str = "models/gemini-2.5-flash"
+    GEMINI_API_KEY: str
+    OPENROUTER_API_KEY: Optional[str] = None  # Deprecated, will be removed
     
     # Redis Cache Config
     REDIS_HOST: str = "localhost"
@@ -31,5 +32,6 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
+        extra = "ignore"  # Ignore extra fields during migration
 
 settings = Settings()

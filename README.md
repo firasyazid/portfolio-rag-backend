@@ -33,7 +33,7 @@ This backend powers an AI assistant that answers questions about a software engi
 ### 3. RAG Pipeline
 - **Vector Search**: Pinecone-powered similarity search with sentence-transformers embeddings
 - **Context Assembly**: Retrieves top-k relevant chunks and formats them for LLM consumption
-- **LLM Integration**: OpenRouter API with support for multiple models (Llama, Mistral, Gemini)
+- **LLM Integration**: Google Gemini API with support for multiple models
 - **Prompt Engineering**: Centralized prompt management with multiple variants (default, concise, technical, recruiter)
 
 ### 4. Production-Ready API
@@ -70,14 +70,14 @@ This backend powers an AI assistant that answers questions about a software engi
 │   2. Embed Query                │
 │   3. Vector Search (Pinecone)   │
 │   4. Build Context              │
-│   5. Call LLM (OpenRouter)      │
+│   5. Call LLM (Gemini)      │
 │   6. Cache Result               │
 └────────┬────────────────────────┘
          │
     ┌────┴─────┬──────────────────┐
     ▼          ▼                  ▼
 ┌────────┐ ┌────────┐      ┌────────────┐
-│ Redis  │ │Pinecone│      │ OpenRouter │
+│ Redis  │ │Pinecone│      │ Gemini  │
 │ Cache  │ │ Vector │      │    LLM     │
 └────────┘ └────────┘      └────────────┘
 ```
@@ -88,7 +88,7 @@ This backend powers an AI assistant that answers questions about a software engi
 - **Vector Database**: Pinecone (serverless vector search)
 - **Embeddings**: SentenceTransformers (`all-MiniLM-L6-v2`)
 - **Cache**: Redis (with cosine similarity search)
-- **LLM**: OpenRouter API (Llama 3.3 70B Instruct)
+- **LLM**: Google Gemini API (gemini-1.5-flash)
 - **Rate Limiting**: SlowAPI
 - **Validation**: Pydantic v2
 
@@ -98,7 +98,7 @@ This backend powers an AI assistant that answers questions about a software engi
 - Python 3.8+
 - Pinecone account (free tier available)
 - Redis instance (local or cloud)
-- OpenRouter API key
+- Google Gemini API key
 
 ### Setup
 
@@ -126,8 +126,8 @@ PINECONE_API_KEY=your_pinecone_api_key
 PINECONE_ENVIRONMENT=your_environment
 PINECONE_INDEX_NAME=firas-portfolio
 
-# OpenRouter
-OPENROUTER_API_KEY=your_openrouter_key
+# Google Gemini
+GEMINI_API_KEY=your_gemini_api_key
 
 # Redis
 REDIS_HOST=localhost

@@ -18,7 +18,7 @@ class RAGService:
         vector_store,
         semantic_cache=None,
         llm_model: str = None,
-        llm_endpoint: str = "https://openrouter.ai/api/v1/chat/completions",
+        llm_endpoint: str = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
         api_key: Optional[str] = None
     ):
         """
@@ -27,15 +27,15 @@ class RAGService:
         Args:
             vector_store: Vector database instance (e.g., Pinecone wrapper)
             semantic_cache: Semantic cache instance (optional)
-            llm_model: OpenRouter model identifier (defaults from settings)
+            llm_model: Gemini model identifier (defaults from settings)
             llm_endpoint: LLM API endpoint
-            api_key: OpenRouter API key (defaults to settings)
+            api_key: Gemini API key (defaults to settings)
         """
         self.vector_store = vector_store
         self.semantic_cache = semantic_cache
         self.llm_model = llm_model or settings.LLM_MODEL
         self.llm_endpoint = llm_endpoint
-        self.api_key = api_key or settings.OPENROUTER_API_KEY
+        self.api_key = api_key or settings.GEMINI_API_KEY
     
     async def generate_answer(
         self, 
@@ -123,34 +123,34 @@ class RAGService:
         user_message: str,
         temperature: float
     ) -> str:
-        """Call OpenRouter LLM API."""
+        """Call Google Gemini LLM API."""
         async with httpx.AsyncClient() as client:
             headers = {
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-                "HTTP-Referer": "https://firas-portfolio.com",
-                "X-Title": "Firas Portfolio RAG"
+                "Content-Type": "application/json"
             }
             
             payload = {
-                "model": self.llm_model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_message}
-                ],
-                "temperature": temperature
+                "contents": [{
+                    "parts": [{
+                        "text": f"{system_prompt}\n\nUser: {user_message}"
+                    }]
+                }],
+                "generationConfig": {
+                    "temperature": temperature,
+                    "maxOutputTokens": 2048
+                }
             }
             
-            logger.info(f"Calling OpenRouter with model: {payload['model']}")
+            logger.info(f"Calling Gemini with model: {self.llm_model}")
             
             response = await client.post(
-                self.llm_endpoint,
+                f"{self.llm_endpoint}?key={self.api_key}",
                 headers=headers,
                 json=payload,
                 timeout=60.0
             )
             
-            logger.info(f"OpenRouter response status: {response.status_code}")
+            logger.info(f"Gemini response status: {response.status_code}")
             
             if response.status_code != 200:
                 error_text = response.text[:200]
@@ -158,7 +158,7 @@ class RAGService:
                 raise Exception(f"LLM provider error: {error_text}")
                 
             llm_data = response.json()
-            answer = llm_data["choices"][0]["message"]["content"]
+            answer = llm_data["candidates"][0]["content"]["parts"][0]["text"]
             
             return answer
 
