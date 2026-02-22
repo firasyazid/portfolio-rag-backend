@@ -143,7 +143,10 @@ async def chat_endpoint(request: Request, chat_request: ChatRequest):
 
     except Exception as e:
         logger.error(f"Chat pipeline failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=503, 
+            detail="Our system is currently experiencing high load or is down. Please try again in a few minutes."
+        )
 
 @router.get("/cache/stats")
 async def get_cache_stats():

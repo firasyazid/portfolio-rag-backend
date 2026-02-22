@@ -1,4 +1,5 @@
 import httpx
+import asyncio
 from typing import List, Dict, Any, Optional
 from app.core.config import settings
 from app.core.logging_config import get_logger
@@ -56,7 +57,7 @@ class RAGService:
         """
         # Step 0: Check Semantic Cache
         if self.semantic_cache:
-            query_embedding = self.vector_store.embed_text(query)
+            query_embedding = self.vector_store.embed_query(query)
             cached_result = self.semantic_cache.check_cache(query_embedding, query)
             
             if cached_result:
@@ -87,7 +88,7 @@ class RAGService:
         
         # Step 5: Cache the result
         if self.semantic_cache:
-            query_embedding = self.vector_store.embed_text(query)
+            query_embedding = self.vector_store.embed_query(query)
             self.semantic_cache.set_cache(query_embedding, query, answer, context_results)
         
         return {
@@ -123,44 +124,61 @@ class RAGService:
         user_message: str,
         temperature: float
     ) -> str:
-        """Call Google Gemini LLM API."""
-        async with httpx.AsyncClient() as client:
-            headers = {
-                "Content-Type": "application/json"
-            }
-            
-            payload = {
-                "contents": [{
-                    "parts": [{
-                        "text": f"{system_prompt}\n\nUser: {user_message}"
-                    }]
-                }],
-                "generationConfig": {
-                    "temperature": temperature,
-                    "maxOutputTokens": 2048
-                }
-            }
-            
-            logger.info(f"Calling Gemini with model: {self.llm_model}")
-            
-            response = await client.post(
-                f"{self.llm_endpoint}?key={self.api_key}",
-                headers=headers,
-                json=payload,
-                timeout=60.0
-            )
-            
-            logger.info(f"Gemini response status: {response.status_code}")
-            
-            if response.status_code != 200:
-                error_text = response.text[:200]
-                logger.error(f"LLM API Error: {error_text}")
-                raise Exception(f"LLM provider error: {error_text}")
-                
-            llm_data = response.json()
-            answer = llm_data["candidates"][0]["content"]["parts"][0]["text"]
-            
-            return answer
+        """Call Google Gemini LLM API with retries."""
+        
+        max_retries = 3
+        
+        for attempt in range(max_retries):
+            try:
+                async with httpx.AsyncClient() as client:
+                    headers = {
+                        "Content-Type": "application/json"
+                    }
+                    
+                    payload = {
+                        "contents": [{
+                            "parts": [{
+                                "text": f"{system_prompt}\n\nUser: {user_message}"
+                            }]
+                        }],
+                        "generationConfig": {
+                            "temperature": temperature,
+                            "maxOutputTokens": 2048
+                        }
+                    }
+                    
+                    logger.info(f"Calling Gemini with model: {self.llm_model} (Attempt {attempt + 1}/{max_retries})")
+                    
+                    response = await client.post(
+                        f"{self.llm_endpoint}?key={self.api_key}",
+                        headers=headers,
+                        json=payload,
+                        timeout=60.0
+                    )
+                    
+                    if response.status_code != 200:
+                        error_text = response.text[:200]
+                        logger.error(f"LLM API Error (Status {response.status_code}): {error_text}")
+                        # If it's the last attempt, raise the error
+                        if attempt == max_retries - 1:
+                            raise Exception(f"LLM provider error after {max_retries} attempts: {error_text}")
+                        
+                        # Otherwise, wait and retry (exponential backoff)
+                        wait_time = 2 ** attempt
+                        logger.warning(f"Retrying in {wait_time}s...")
+                        await asyncio.sleep(wait_time)
+                        continue
+                        
+                    llm_data = response.json()
+                    answer = llm_data["candidates"][0]["content"]["parts"][0]["text"]
+                    return answer
+                    
+            except Exception as e:
+                logger.error(f"Attempt {attempt + 1} failed: {str(e)}")
+                if attempt == max_retries - 1:
+                    raise e
+                wait_time = 2 ** attempt
+                await asyncio.sleep(wait_time)
 
 def get_rag_service():
     """

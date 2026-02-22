@@ -1,5 +1,6 @@
 import httpx
 import json
+import asyncio
 from typing import Dict, Any, AsyncGenerator, List, Optional
 from app.core.config import settings
 from app.db.vector_store import vector_store
@@ -113,86 +114,123 @@ class StreamingRAGService:
             context_str = self._build_context(context_results)
             system_prompt = self._build_system_prompt(context_str)
             
-            # Step 3: Stream from LLM
-            logger.info(f"Streaming from LLM: {self.llm_model}")
+            # Step 3: Stream from LLM with retries
+            max_retries = 3
             
-            headers = {
-                "Content-Type": "application/json"
-            }
-            
-            payload = {
-                "contents": [{
-                    "parts": [{
-                        "text": f"{system_prompt}\n\nUser: {query}"
-                    }]
-                }],
-                "generationConfig": {
-                    "temperature": temperature,
-                    "maxOutputTokens": 2048
-                }
-            }
-            
-            async with httpx.AsyncClient() as client:
-                async with client.stream(
-                    "POST",
-                    f"{self.llm_endpoint}?key={self.api_key}",
-                    headers=headers,
-                    json=payload,
-                    timeout=120.0
-                ) as response:
-                    if response.status_code != 200:
-                        try:
-                            error_text = response.text
-                        except:
-                            error_text = f"HTTP {response.status_code}"
-                        logger.error(f"LLM API Error: {error_text[:200]}")
+            for attempt in range(max_retries):
+                try:
+                    logger.info(f"Streaming from LLM: {self.llm_model} (Attempt {attempt + 1}/{max_retries})")
+                    
+                    headers = {
+                        "Content-Type": "application/json"
+                    }
+                    
+                    payload = {
+                        "contents": [{
+                            "parts": [{
+                                "text": f"{system_prompt}\n\nUser: {query}"
+                            }]
+                        }],
+                        "generationConfig": {
+                            "temperature": temperature,
+                            "maxOutputTokens": 2048
+                        }
+                    }
+                    
+                    async with httpx.AsyncClient() as client:
+                        async with client.stream(
+                            "POST",
+                            f"{self.llm_endpoint}?key={self.api_key}",
+                            headers=headers,
+                            json=payload,
+                            timeout=120.0
+                        ) as response:
+                            if response.status_code != 200:
+                                try:
+                                    error_text = await response.aread()
+                                    error_text = error_text.decode()
+                                except:
+                                    error_text = f"HTTP {response.status_code}"
+                                
+                                logger.error(f"LLM API Error (Status {response.status_code}): {error_text[:200]}")
+                                
+                                if attempt < max_retries - 1:
+                                    wait_time = 2 ** attempt
+                                    logger.warning(f"Retrying streaming in {wait_time}s...")
+                                    await asyncio.sleep(wait_time)
+                                    continue
+                                
+                                yield json.dumps({
+                                    "type": "error",
+                                    "message": "Our system is currently down. Please try again in a few minutes."
+                                }) + "\n"
+                                return
+                            
+                            json_buffer = ""
+                            brace_count = 0
+                            
+                            async for line in response.aiter_lines():
+                                if not line:
+                                    continue
+                                
+                                # Accumulate JSON fragments
+                                json_buffer += line
+                                
+                                # Count braces to find complete JSON objects
+                                for char in line:
+                                    if char == '{':
+                                        brace_count += 1
+                                    elif char == '}':
+                                        brace_count -= 1
+                                
+                                # When braces balance, we have a complete JSON object
+                                if brace_count == 0 and json_buffer.strip():
+                                    try:
+                                        chunk_data = json.loads(json_buffer)
+                                        
+                                        # Extract content from Gemini response
+                                        if "candidates" in chunk_data and len(chunk_data["candidates"]) > 0:
+                                            candidate = chunk_data["candidates"][0]
+                                            if "content" in candidate and "parts" in candidate["content"]:
+                                                parts = candidate["content"]["parts"]
+                                                if len(parts) > 0 and "text" in parts[0]:
+                                                    content = parts[0]["text"]
+                                                    
+                                                    if content:
+                                                        chunk_output = json.dumps({
+                                                            "type": "chunk",
+                                                            "content": content
+                                                        }) + "\n"
+                                                        yield chunk_output
+                                        
+                                        # Reset buffer for next JSON object
+                                        json_buffer = ""
+                                        
+                                    except json.JSONDecodeError:
+                                        json_buffer = ""
+                                        brace_count = 0
+                                        continue
+                            
+                            # If we reached here, the stream finished successfully
+                            yield json.dumps({"type": "done"}) + "\n"
+                            return # Exit the retry loop and the function
+                            
+                except Exception as e:
+                    logger.error(f"Streaming attempt {attempt + 1} failed: {str(e)}")
+                    if attempt == max_retries - 1:
                         yield json.dumps({
                             "type": "error",
-                            "message": f"LLM provider error: {error_text[:100]}"
+                            "message": "Our system is experiencing connection issues. Please try again in a few minutes."
                         }) + "\n"
                         return
-                    
-                    logger.info("Receiving streaming response from LLM...")
-                    
-                    async for line in response.aiter_lines():
-                        if not line:
-                            continue
-                        
-                        # Parse Gemini streaming format
-                        if line.startswith("data: "):
-                            data_str = line[6:]   
-                            
-                            if data_str == "[DONE]":
-                                logger.info("Stream completed")
-                                yield json.dumps({"type": "done"}) + "\n"
-                                continue
-                            
-                            try:
-                                chunk_data = json.loads(data_str)
-                                
-                                # Extract content from Gemini response
-                                if "candidates" in chunk_data and len(chunk_data["candidates"]) > 0:
-                                    candidate = chunk_data["candidates"][0]
-                                    if "content" in candidate and "parts" in candidate["content"]:
-                                        parts = candidate["content"]["parts"]
-                                        if len(parts) > 0 and "text" in parts[0]:
-                                            content = parts[0]["text"]
-                                            
-                                            if content:
-                                                yield json.dumps({
-                                                    "type": "chunk",
-                                                    "content": content
-                                                }) + "\n"
-                                        
-                            except json.JSONDecodeError:
-                                logger.warning(f"Failed to parse streaming data: {data_str[:50]}")
-                                continue
+                    wait_time = 2 ** attempt
+                    await asyncio.sleep(wait_time)
         
         except Exception as e:
             logger.error(f"Streaming failed: {e}", exc_info=True)
             yield json.dumps({
                 "type": "error",
-                "message": str(e)
+                "message": "The system encountered an unexpected error. Please try again shortly."
             }) + "\n"
 
 

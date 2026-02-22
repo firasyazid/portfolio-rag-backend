@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     PINECONE_INDEX_NAME: str = "firas-portfolio"
     
     # LLM & Embedding Config
-    EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"
+    EMBEDDING_MODEL: str = "BAAI/bge-base-en-v1.5"
     LLM_MODEL: str = "models/gemini-2.5-flash"
     GEMINI_API_KEY: str
     OPENROUTER_API_KEY: Optional[str] = None  # Deprecated, will be removed

@@ -35,11 +35,21 @@ class LazyEmbeddingService:
     
     def encode(self, text: str) -> List[float]:
         """
-        Encode text to embeddings.
+        Encode a document chunk to embeddings.
         Loads model on first call.
         """
         self._ensure_loaded()
         return self.model.encode(text).tolist()
+
+    def encode_query(self, text: str) -> List[float]:
+        """
+        Encode a search query to embeddings.
+        BGE models require a special prefix for query text (not for documents).
+        Loads model on first call.
+        """
+        self._ensure_loaded()
+        prefixed = f"Represent this sentence for searching relevant passages: {text}"
+        return self.model.encode(prefixed).tolist()
     
     def encode_batch(self, texts: List[str]) -> List[List[float]]:
         """

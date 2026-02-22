@@ -6,7 +6,6 @@ uvicorn[standard]==0.27.0
 slowapi==0.1.9
 
 # Vector Database & Embeddings
-chromadb==0.4.22
 sentence-transformers==2.3.1
 
 # HTTP Client for LLM API calls

@@ -20,8 +20,15 @@ class VectorStore:
         self.model = SentenceTransformer(settings.EMBEDDING_MODEL)
     
     def embed_text(self, text: str) -> List[float]:
-        """Generates a vector embedding for the given text."""
+        """Generates a vector embedding for a document chunk."""
         return self.model.encode(text).tolist()
+
+    def embed_query(self, query: str) -> List[float]:
+        """Generates a vector embedding for a search query.
+        BGE models require a special prefix for query text (not for documents).
+        """
+        prefixed = f"Represent this sentence for searching relevant passages: {query}"
+        return self.model.encode(prefixed).tolist()
 
     def upsert_chunks(self, chunks: List[Dict]):
         """
@@ -56,7 +63,7 @@ class VectorStore:
         Embeds the query and searches Pinecone.
         Returns matches with full metadata for RAG context building.
         """
-        query_vector = self.embed_text(query)
+        query_vector = self.embed_query(query)
         results = self.index.query(
             vector=query_vector,
             top_k=top_k,
