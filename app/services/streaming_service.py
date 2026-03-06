@@ -140,7 +140,7 @@ class StreamingRAGService:
                     async with httpx.AsyncClient() as client:
                         async with client.stream(
                             "POST",
-                            f"{self.llm_endpoint}?key={self.api_key}",
+                            f"{self.llm_endpoint}?key={self.api_key}&alt=sse",
                             headers=headers,
                             json=payload,
                             timeout=120.0
@@ -166,27 +166,19 @@ class StreamingRAGService:
                                 }) + "\n"
                                 return
                             
-                            json_buffer = ""
-                            brace_count = 0
-                            
                             async for line in response.aiter_lines():
+                                line = line.strip()
                                 if not line:
                                     continue
                                 
-                                # Accumulate JSON fragments
-                                json_buffer += line
-                                
-                                # Count braces to find complete JSON objects
-                                for char in line:
-                                    if char == '{':
-                                        brace_count += 1
-                                    elif char == '}':
-                                        brace_count -= 1
-                                
-                                # When braces balance, we have a complete JSON object
-                                if brace_count == 0 and json_buffer.strip():
+                                # Process Server-Sent Events (SSE) format
+                                if line.startswith("data:"):
+                                    json_str = line[5:].strip()
+                                    if json_str == "[DONE]":
+                                        continue
+                                        
                                     try:
-                                        chunk_data = json.loads(json_buffer)
+                                        chunk_data = json.loads(json_str)
                                         
                                         # Extract content from Gemini response
                                         if "candidates" in chunk_data and len(chunk_data["candidates"]) > 0:
@@ -202,14 +194,34 @@ class StreamingRAGService:
                                                             "content": content
                                                         }) + "\n"
                                                         yield chunk_output
-                                        
-                                        # Reset buffer for next JSON object
-                                        json_buffer = ""
-                                        
-                                    except json.JSONDecodeError:
-                                        json_buffer = ""
-                                        brace_count = 0
+                                                        
+                                    except json.JSONDecodeError as e:
+                                        logger.warning(f"Failed to parse SSE JSON: {e}")
                                         continue
+                                        
+                                # Also handle the non-SSE array format just in case
+                                # Some Gemini versions might return a JSON array without alt=sse
+                                elif line.startswith("{") or line.startswith("[") or line.startswith("},"):
+                                    # Fallback simple parsing for non-SSE array format chunks
+                                    clean_line = line.strip()
+                                    if clean_line.startswith("["): clean_line = clean_line[1:].strip()
+                                    if clean_line.endswith("]"): clean_line = clean_line[:-1].strip()
+                                    if clean_line.endswith(","): clean_line = clean_line[:-1].strip()
+                                    
+                                    if clean_line and clean_line.startswith("{") and clean_line.endswith("}"):
+                                        try:
+                                            chunk_data = json.loads(clean_line)
+                                            if "candidates" in chunk_data and len(chunk_data["candidates"]) > 0:
+                                                candidate = chunk_data["candidates"][0]
+                                                if "content" in candidate and "parts" in candidate["content"]:
+                                                    parts = candidate["content"]["parts"]
+                                                    if len(parts) > 0 and "text" in parts[0]:
+                                                        content = parts[0]["text"]
+                                                        if content:
+                                                            chunk_output = json.dumps({"type": "chunk", "content": content}) + "\n"
+                                                            yield chunk_output
+                                        except json.JSONDecodeError:
+                                            pass
                             
                             # If we reached here, the stream finished successfully
                             yield json.dumps({"type": "done"}) + "\n"
